@@ -5,7 +5,7 @@
 mod gdt;
 mod interrupts;
 mod screen;
-
+mod program;
 
 use limine::request::FramebufferRequest;
 use limine::BaseRevision;
@@ -23,9 +23,7 @@ static BASE_REVISION: BaseRevision = BaseRevision::new();
 static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 
 pub fn handle_key(key: char) {
-    if let Some(writer) = WRITER.get() {
-        writer.lock().print_char(key);
-    }
+    program::set_key(key);
 }
 
 #[no_mangle]
@@ -45,14 +43,15 @@ extern "C" fn kmain() -> ! {
                 ))
             });
 
-            WRITER.get().unwrap().lock().print("HELLO AMIT A\n");
-            WRITER.get().unwrap().lock().print("TYPE SOMETHING:\n");
+            program::start();
         }
     }
 
     loop {
-        x86_64::instructions::hlt();
+        
     }
+
+    
 }
 
 #[panic_handler]

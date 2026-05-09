@@ -62,6 +62,10 @@ impl Writer {
     }
 
     pub fn print_char(&mut self, c: char) {
+        if c == '\n'{
+            self.new_line();
+            return;
+        }
         if self.x + 10 >= self.width {
             self.new_line();
         }
