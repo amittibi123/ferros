@@ -1,0 +1,6 @@
+/target/
+/my_os.iso
+/limine/
+*.bin
+*.obj
+.DS_Store

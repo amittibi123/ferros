@@ -32,3 +32,5 @@ xorriso -as mkisofs \
 ./limine/limine bios-install my_os.iso 2>/dev/null
 
 echo "✅ נבנה בהצלחה!"
+
+qemu-system-x86_64 -cdrom my_os.iso
