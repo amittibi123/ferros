@@ -61,9 +61,43 @@ impl Writer {
         }
     }
 
-    pub fn print_char(&mut self, c: char) {
+    pub fn backspace(&mut self) {
+        if self.x > 20 { // ודא שאנחנו לא מוחקים את ה-Prompt (התחלת השורה)
+            self.x -= 10;
+            // צייר מלבן ריק בצבע הרקע (נניח שחור 0x000000)
+            for row in 0..8 {
+                for col in 0..8 {
+                    self.draw_pixel(self.x + col, self.y + row, 0x000000);
+                }
+            }
+        }
+    }
+
+    pub fn clear_screen(&mut self) {
+        // אנחנו רצים על כל השורות (height)
+        for y in 0..self.height {
+            // ועל כל העמודות (width)
+            for x in 0..self.width {
+                self.draw_pixel(x, y, 0x000000);
+            }
+        }
+        // אחרי הניקוי, נחזיר את הסמן להתחלה
+        self.x = 20;
+        self.y = 20;
+    }
+
+    pub fn print_char(&mut self, mut c: char) {
+        c = c.to_ascii_uppercase();
         if c == '\n'{
             self.new_line();
+            return;
+        }
+        if c == ' '{
+            if self.x + 10 >= self.width {
+                self.new_line();
+                return;
+            }
+            self.x += 10;
             return;
         }
         if self.x + 10 >= self.width {
@@ -86,11 +120,7 @@ impl Writer {
 
     pub fn print(&mut self, text: &str) {
         for c in text.chars() {
-            match c {
-                '\n' => self.new_line(),
-                ' ' => self.x += 10,
-                _ => self.print_char(c),
-            }
+            self.print_char(c); // תן ל-print_char לטפל גם ב-n\ וגם ברווח
         }
     }
 

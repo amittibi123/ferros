@@ -98,6 +98,8 @@ fn translate_scancode(scancode: u8) -> Option<char> {
         0x15 => Some('Y'),
         0x2C => Some('Z'),
         0x1C => Some('\n'),
+        0x39 => Some(' '),
+        0x0E => Some('\x08'),
         _ => None,
     }
 }
