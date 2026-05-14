@@ -2,10 +2,12 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 
+mod ata;
+mod fat;
 mod gdt;
 mod interrupts;
-mod screen;
 mod program;
+mod screen;
 
 use limine::request::FramebufferRequest;
 use limine::BaseRevision;
@@ -42,16 +44,14 @@ extern "C" fn kmain() -> ! {
                     0xFFFFFF,
                 ))
             });
-
+            // בדיקת ATA
+            let mut buf = [0u8; 512];
+            ata::read_sector(0, &mut buf);
             program::start();
         }
     }
 
-    loop {
-        
-    }
-
-    
+    loop {}
 }
 
 #[panic_handler]

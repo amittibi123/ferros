@@ -38,7 +38,7 @@ pub fn init() {
         let mut slave_data: Port<u8> = Port::new(0xA1);
         master_data.write(0b11111101); // רק IRQ1 פתוח, IRQ0 (timer) סגור
         slave_data.write(0b11111111);
-        
+
         x86_64::instructions::interrupts::enable();
     }
 }
@@ -48,7 +48,7 @@ extern "x86-interrupt" fn keyboard_handler(_stack_frame: InterruptStackFrame) {
     if let Some(writer) = crate::WRITER.get() {
         writer.lock().draw_pixel(0, 0, 0x00FF00);
     }
-    
+
     let mut port = Port::new(0x60);
     let scancode: u8 = unsafe { port.read() };
 
@@ -100,6 +100,7 @@ fn translate_scancode(scancode: u8) -> Option<char> {
         0x1C => Some('\n'),
         0x39 => Some(' '),
         0x0E => Some('\x08'),
+        0x34 => Some('.'),
         _ => None,
     }
 }

@@ -10,7 +10,12 @@ pub fn dispatch_command(input: &str) {
         "ECHO" => commends::command_echo(args),
         "HELP" => commends::command_help(args),
         "CLEAR" => commends::clear(args),
-        "" => {}, 
-        _ => commends::command_echo("errore"),
+        "DISKTEST" => commends::command_disktest(args),
+        "WRITE" => commends::command_write(args),
+        "READ" => commends::command_read(args),
+        "DELETE" => commends::command_delete(args),
+        "LS" => commends::commeand_list(args),
+        "" => {}
+        _ => commends::command_echo("errore commend not found"),
     }
 }
