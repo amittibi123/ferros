@@ -45,27 +45,38 @@ impl StringBuffer {
 
 pub fn start() {
     let mut s: String<32> = String::new();
-    crate::WRITER.get().unwrap().lock().println("ENTER 5 KEYS");
-    let mut diractory: &str = "/";
+    crate::WRITER.get().unwrap().lock().println("terminal");
+
+    let mut directory: String<64> = String::new();
+    let _ = directory.push_str("/");
+
+    crate::WRITER.get().unwrap().lock().print("/> ");
     loop {
         x86_64::instructions::hlt();
         let key = input();
+
         match key {
             '\n' => {
+                // נועלים פעם אחת בשביל לפתוח שורה חדשה
                 crate::WRITER.get().unwrap().lock().new_line();
-                let final_str: &str = s.as_str();
-                Dispatcher::dispatch_command(final_str, diractory);
+
+                let cmd: &str = s.as_str();
+                Dispatcher::dispatch_command(cmd, &mut directory);
+
                 s.clear();
+
+                // נועלים פעם אחת ומדפיסים את ה-Prompt המעודכן
+                let mut w = crate::WRITER.get().unwrap().lock();
+                w.print(directory.as_str());
+                w.print("> ");
             }
             '\x08' => {
-                // Backspace
                 if s.len() > 0 {
-                    s.pop(); // מוחק מה-String של heapless
-                    crate::WRITER.get().unwrap().lock().backspace(); // מוחק מהמסך
+                    s.pop();
+                    crate::WRITER.get().unwrap().lock().backspace();
                 }
             }
             _ => {
-                // הוספת תו רגיל
                 if s.push(key).is_ok() {
                     crate::WRITER.get().unwrap().lock().print_char(key);
                 }
@@ -73,7 +84,6 @@ pub fn start() {
         }
     }
 }
-
 pub fn set_key(key: char) {
     *CURRENT_KEY.lock() = Some(key);
 }

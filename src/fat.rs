@@ -365,3 +365,77 @@ fn write_file_entry(sector: u32, name: &str, ext: &str, cluster: u16, size: usiz
     }
     false
 }
+
+// מצא cluster של נתיב כמו "DOCS/SRC"
+fn resolve_path(path: &str) -> Option<u32> {
+    let (_, root_start, data_start, spc) = get_layout();
+
+    let mut current_sector = root_start;
+
+    for part in path.split('/') {
+        if part.is_empty() {
+            continue;
+        }
+
+        let cluster = find_entry(current_sector, part, "", true)?;
+        current_sector = data_start + (cluster as u32 - 2) * spc;
+    }
+
+    Some(current_sector)
+}
+
+pub fn create_dir_at(path: &str, name: &str) -> bool {
+    let (fat_start, _, data_start, spc) = get_layout();
+    let parent_sector = match resolve_path(path) {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let cluster = match find_free_cluster(fat_start) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    mark_cluster_used(fat_start, cluster);
+    let empty = [0u8; 512];
+    ata::write_sector(data_start + (cluster as u32 - 2) * spc, &empty);
+
+    write_dir_entry(parent_sector, name, cluster, true)
+}
+
+pub fn create_file_at(path: &str, name: &str, ext: &str, content: &[u8]) -> bool {
+    let (fat_start, _, data_start, spc) = get_layout();
+    let parent_sector = match resolve_path(path) {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let cluster = match find_free_cluster(fat_start) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    let mut data = [0u8; 512];
+    let len = content.len().min(512);
+    data[..len].copy_from_slice(&content[..len]);
+    ata::write_sector(data_start + (cluster as u32 - 2) * spc, &data);
+    mark_cluster_used(fat_start, cluster);
+
+    write_file_entry(parent_sector, name, ext, cluster, len)
+}
+
+pub fn read_file_at(path: &str, name: &str, ext: &str, buf: &mut [u8; 512]) -> u32 {
+    let (_, _, data_start, spc) = get_layout();
+    let parent_sector = match resolve_path(path) {
+        Some(s) => s,
+        None => return 0,
+    };
+
+    match find_entry(parent_sector, name, ext, false) {
+        Some(cluster) => {
+            ata::read_sector(data_start + (cluster as u32 - 2) * spc, buf);
+            512
+        }
+        None => 0,
+    }
+}

@@ -113,6 +113,18 @@ const FONT: [[u8; 8]; 26] = [
 const FONT_DOT: [u8; 8] = [
     0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00011000, 0b00011000, 0b00000000,
 ];
+
+const FONT_SLASH: [u8; 8] = [
+    0b00000010, 0b00000100, 0b00001000, 0b00010000, 0b00100000, 0b01000000, 0b10000000, 0b00000000,
+];
+
+const FONT_GT: [u8; 8] = [
+    0b01100000, 0b00011000, 0b00000110, 0b00000110, 0b00011000, 0b01100000, 0b00000000, 0b00000000,
+];
+
+const FONT_LT: [u8; 8] = [
+    0b00000110, 0b00011000, 0b01100000, 0b01100000, 0b00011000, 0b00000110, 0b00000000, 0b00000000,
+];
 pub struct Writer {
     x: u64,
     y: u64,
@@ -193,6 +205,8 @@ impl Writer {
         if self.x + 10 >= self.width {
             self.new_line();
         }
+
+        // אותיות אנגליות
         if c >= 'A' && c <= 'Z' {
             let index = (c as usize) - ('A' as usize);
             let glyph = FONT[index];
@@ -205,6 +219,8 @@ impl Writer {
                 }
             }
         }
+
+        // נקודה
         if c == '.' {
             let glyph = FONT_DOT;
             for row in 0..8usize {
@@ -216,9 +232,48 @@ impl Writer {
                 }
             }
         }
+
+        // 🌟 תמיכה בנטוי ימני /
+        if c == '/' {
+            let glyph = FONT_SLASH;
+            for row in 0..8usize {
+                let row_data = glyph[row];
+                for col in 0..8usize {
+                    if (row_data >> (7 - col)) & 1 == 1 {
+                        self.draw_pixel(self.x + col as u64, self.y + row as u64, self.color);
+                    }
+                }
+            }
+        }
+
+        // 🌟 תמיכה בסימן קטן-מ- >
+        if c == '>' {
+            let glyph = FONT_GT;
+            for row in 0..8usize {
+                let row_data = glyph[row];
+                for col in 0..8usize {
+                    if (row_data >> (7 - col)) & 1 == 1 {
+                        self.draw_pixel(self.x + col as u64, self.y + row as u64, self.color);
+                    }
+                }
+            }
+        }
+
+        // 🌟 תמיכה בסימן גדול-מ- <
+        if c == '<' {
+            let glyph = FONT_LT;
+            for row in 0..8usize {
+                let row_data = glyph[row];
+                for col in 0..8usize {
+                    if (row_data >> (7 - col)) & 1 == 1 {
+                        self.draw_pixel(self.x + col as u64, self.y + row as u64, self.color);
+                    }
+                }
+            }
+        }
+
         self.x += 10;
     }
-
     pub fn print(&mut self, text: &str) {
         for c in text.chars() {
             self.print_char(c); // תן ל-print_char לטפל גם ב-n\ וגם ברווח
@@ -235,4 +290,3 @@ impl Writer {
         self.y += 12;
     }
 }
-

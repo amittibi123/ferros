@@ -111,3 +111,38 @@ pub fn mkdir(args: &str) {
             "failed"
         });
 }
+
+// הפונקציה עכשיו מקבלת רפרנס למחרוזת של heapless ויכולה לעדכן אותה בבטחה
+pub fn cd(args: &str, dir: &mut heapless::String<64>) {
+    let mut parts = args.splitn(2, ' ');
+    let new_dir = parts.next().unwrap_or("");
+    match new_dir {
+        ".." => pop_directory(dir),
+        "/" => {
+            dir.clear();
+            let _ = dir.push_str("/");
+        }
+        _ => {
+            if dir != "/" {
+                let __ = dir.push_str("/");
+            }
+            let _ = dir.push_str(new_dir);
+        }
+    }
+    // מתעלמים משגיאת גלישה (Overflow) אם הנתיב ארוך מדי, או מטפלים בה
+}
+
+pub fn pop_directory(directory: &mut heapless::String<64>) {
+    // 1. מוצאים את האינדקס של ה-/ האחרון במחרוזת
+    if let Some(last_slash_idx) = directory.rfind('/') {
+        // מקרה קצה: אם ה-/ האחרון הוא הלוכסן הראשון והיחיד (ה-Root כמו "/")
+        if last_slash_idx == 0 {
+            // משאירים רק את ה-/, כלומר חותכים את הכל החל מאינדקס 1
+            directory.truncate(1);
+        } else {
+            // חותכים את המחרוזת בדיוק במיקום של ה-/ האחרון
+            // זה ימחק את ה-/ האחרון ואת כל מה שבא אחריו
+            directory.truncate(last_slash_idx);
+        }
+    }
+}
