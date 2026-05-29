@@ -96,3 +96,18 @@ pub fn commeand_list(args: &str) {
     let string_list = core::str::from_utf8(&raw_buf).unwrap_or("");
     crate::WRITER.get().unwrap().lock().println(string_list);
 }
+
+pub fn mkdir(args: &str) {
+    let mut parts = args.splitn(2, ' ');
+    let name = parts.next().unwrap_or("");
+    let successfully: bool = crate::fat::create_dir(name);
+    crate::WRITER
+        .get()
+        .unwrap()
+        .lock()
+        .println(if successfully {
+            "crated successfully"
+        } else {
+            "failed"
+        });
+}

@@ -208,3 +208,160 @@ pub fn list_files() -> [u8; 64] {
 
     buf
 }
+
+// צור תיקייה חדשה ב-root
+pub fn create_dir(name: &str) -> bool {
+    let (fat_start, root_start, data_start, spc) = get_layout();
+
+    let cluster = match find_free_cluster(fat_start) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    mark_cluster_used(fat_start, cluster);
+
+    // אתחל את ה-cluster של התיקייה לאפסים
+    let empty = [0u8; 512];
+    let sector = data_start + (cluster as u32 - 2) * spc;
+    ata::write_sector(sector, &empty);
+
+    // כתוב entry ב-root
+    write_dir_entry(root_start, name, cluster, true)
+}
+
+// כתוב קובץ בתוך תיקייה
+pub fn create_file_in(dir: &str, name: &str, ext: &str, content: &[u8]) -> bool {
+    let (fat_start, root_start, data_start, spc) = get_layout();
+
+    // מצא את ה-cluster של התיקייה
+    let dir_cluster = match find_entry(root_start, dir, "", true) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    // מצא cluster פנוי לתוכן
+    let cluster = match find_free_cluster(fat_start) {
+        Some(c) => c,
+        None => return false,
+    };
+
+    // כתוב תוכן
+    let mut data = [0u8; 512];
+    let len = content.len().min(512);
+    data[..len].copy_from_slice(&content[..len]);
+    let sector = data_start + (cluster as u32 - 2) * spc;
+    ata::write_sector(sector, &data);
+
+    mark_cluster_used(fat_start, cluster);
+
+    // כתוב entry בתוך התיקייה
+    let dir_sector = data_start + (dir_cluster as u32 - 2) * spc;
+    write_file_entry(dir_sector, name, ext, cluster, len)
+}
+
+// קרא קובץ מתוך תיקייה
+pub fn read_file_in(dir: &str, name: &str, ext: &str, buf: &mut [u8; 512]) -> u32 {
+    let (_, root_start, data_start, spc) = get_layout();
+
+    let dir_cluster = match find_entry(root_start, dir, "", true) {
+        Some(c) => c,
+        None => return 0,
+    };
+
+    let dir_sector = data_start + (dir_cluster as u32 - 2) * spc;
+
+    match find_entry(dir_sector, name, ext, false) {
+        Some(cluster) => {
+            let sector = data_start + (cluster as u32 - 2) * spc;
+            ata::read_sector(sector, buf);
+            512 // או תחזיר size אמיתי אם שמרת אותו
+        }
+        None => 0,
+    }
+}
+
+// --- פונקציות עזר פנימיות ---
+
+// חפש entry לפי שם, החזר את ה-cluster שלו
+fn find_entry(sector: u32, name: &str, ext: &str, is_dir: bool) -> Option<u16> {
+    let mut buf = [0u8; 512];
+    ata::read_sector(sector, &mut buf);
+
+    for i in 0..16usize {
+        let e = &buf[i * 32..(i + 1) * 32];
+        if e[0] == 0x00 {
+            break;
+        }
+        if e[0] == 0xE5 {
+            continue;
+        }
+
+        let attr = e[11];
+        let entry_is_dir = attr & 0x10 != 0;
+        if entry_is_dir != is_dir {
+            continue;
+        }
+
+        let ename = core::str::from_utf8(&e[0..8]).unwrap_or("").trim_end();
+        let eext = core::str::from_utf8(&e[8..11]).unwrap_or("").trim_end();
+
+        if ename.eq_ignore_ascii_case(name) && eext.eq_ignore_ascii_case(ext) {
+            return Some(u16::from_le_bytes([e[26], e[27]]));
+        }
+    }
+    None
+}
+
+// כתוב directory entry (לתיקייה)
+fn write_dir_entry(sector: u32, name: &str, cluster: u16, is_dir: bool) -> bool {
+    let mut buf = [0u8; 512];
+    ata::read_sector(sector, &mut buf);
+
+    for i in 0..16usize {
+        if buf[i * 32] == 0x00 {
+            let mut entry = [0x20u8; 32];
+
+            let nb = name.as_bytes();
+            let nl = nb.len().min(8);
+            entry[..nl].copy_from_slice(&nb[..nl]);
+
+            entry[11] = if is_dir { 0x10 } else { 0x00 };
+            entry[26] = cluster as u8;
+            entry[27] = (cluster >> 8) as u8;
+
+            buf[i * 32..(i + 1) * 32].copy_from_slice(&entry);
+            ata::write_sector(sector, &buf);
+            return true;
+        }
+    }
+    false
+}
+
+// כתוב file entry (לקובץ)
+fn write_file_entry(sector: u32, name: &str, ext: &str, cluster: u16, size: usize) -> bool {
+    let mut buf = [0u8; 512];
+    ata::read_sector(sector, &mut buf);
+
+    for i in 0..16usize {
+        if buf[i * 32] == 0x00 {
+            let mut entry = [0x20u8; 32];
+
+            let nb = name.as_bytes();
+            entry[..nb.len().min(8)].copy_from_slice(&nb[..nb.len().min(8)]);
+
+            let eb = ext.as_bytes();
+            entry[8..8 + eb.len().min(3)].copy_from_slice(&eb[..eb.len().min(3)]);
+
+            entry[11] = 0x00;
+            entry[26] = cluster as u8;
+            entry[27] = (cluster >> 8) as u8;
+            entry[28] = size as u8;
+            entry[29] = (size >> 8) as u8;
+
+            buf[i * 32..(i + 1) * 32].copy_from_slice(&entry);
+            ata::write_sector(sector, &buf);
+            return true;
+        }
+    }
+    false
+}

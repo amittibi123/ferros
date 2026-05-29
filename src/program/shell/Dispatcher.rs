@@ -1,6 +1,6 @@
 mod commends; // מצהיר על קיום המודול
 
-pub fn dispatch_command(input: &str) {
+pub fn dispatch_command(input: &str, mut dir: &str) {
     let mut parts = input.splitn(2, ' ');
     let cmd = parts.next().unwrap_or("");
     let args = parts.next().unwrap_or("");
@@ -15,6 +15,7 @@ pub fn dispatch_command(input: &str) {
         "READ" => commends::command_read(args),
         "DELETE" => commends::command_delete(args),
         "LS" => commends::commeand_list(args),
+        "mkdir" => commends::mkdir(args),
         "" => {}
         _ => commends::command_echo("errore commend not found"),
     }

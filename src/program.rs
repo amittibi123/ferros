@@ -1,8 +1,8 @@
-use spin::Mutex;
-use lazy_static::lazy_static;
 use heapless::String;
+use lazy_static::lazy_static;
+use spin::Mutex;
 
-use crate::{WRITER, program::shell::Dispatcher};
+use crate::{program::shell::Dispatcher, WRITER};
 mod shell;
 
 lazy_static! {
@@ -46,7 +46,7 @@ impl StringBuffer {
 pub fn start() {
     let mut s: String<32> = String::new();
     crate::WRITER.get().unwrap().lock().println("ENTER 5 KEYS");
-    
+    let mut diractory: &str = "/";
     loop {
         x86_64::instructions::hlt();
         let key = input();
@@ -54,15 +54,16 @@ pub fn start() {
             '\n' => {
                 crate::WRITER.get().unwrap().lock().new_line();
                 let final_str: &str = s.as_str();
-                Dispatcher::dispatch_command(final_str);
+                Dispatcher::dispatch_command(final_str, diractory);
                 s.clear();
-            },
-            '\x08' => { // Backspace
+            }
+            '\x08' => {
+                // Backspace
                 if s.len() > 0 {
                     s.pop(); // מוחק מה-String של heapless
                     crate::WRITER.get().unwrap().lock().backspace(); // מוחק מהמסך
                 }
-            },
+            }
             _ => {
                 // הוספת תו רגיל
                 if s.push(key).is_ok() {
@@ -70,9 +71,7 @@ pub fn start() {
                 }
             }
         }
-        
     }
-    
 }
 
 pub fn set_key(key: char) {
@@ -89,3 +88,4 @@ pub fn input() -> char {
         x86_64::instructions::hlt(); // חכה לפסיקה הבאה
     }
 }
+

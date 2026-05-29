@@ -27,6 +27,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413d67b29ef1021b4d60f4aa1e925ca031751e213832b4b1d588fae623c05c60"
 
 [[package]]
+name = "ferros"
+version = "0.1.0"
+dependencies = [
+ "heapless",
+ "lazy_static",
+ "limine",
+ "pic8259",
+ "spin",
+ "x86_64",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -67,18 +79,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
-]
-
-[[package]]
-name = "my_os"
-version = "0.1.0"
-dependencies = [
- "heapless",
- "lazy_static",
- "limine",
- "pic8259",
- "spin",
- "x86_64",
 ]
 
 [[package]]
