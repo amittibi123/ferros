@@ -287,6 +287,24 @@ impl Writer {
 
     pub fn new_line(&mut self) {
         self.x = 20;
-        self.y += 12;
+        if self.y + 24 >= self.height {
+            self.scroll();
+        } else {
+            self.y += 12;
+        }
+    }
+    fn scroll(&mut self) {
+        unsafe {
+            let base = self.addr as *mut u8;
+            let row_bytes = (self.pitch) as usize;
+            let scroll_bytes = 12 * row_bytes;
+            let total_bytes = self.height as usize * row_bytes;
+
+            // העתק הכל בבת אחת
+            core::ptr::copy(base.add(scroll_bytes), base, total_bytes - scroll_bytes);
+
+            // נקה שורה אחרונה
+            core::ptr::write_bytes(base.add(total_bytes - scroll_bytes), 0, scroll_bytes);
+        }
     }
 }

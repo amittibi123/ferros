@@ -318,7 +318,7 @@ fn write_dir_entry(sector: u32, name: &str, cluster: u16, is_dir: bool) -> bool 
     ata::read_sector(sector, &mut buf);
 
     for i in 0..16usize {
-        if buf[i * 32] == 0x00 {
+        if buf[i * 32] == 0x00 || buf[i * 32] == 0xE5 {
             let mut entry = [0x20u8; 32];
 
             let nb = name.as_bytes();
@@ -343,7 +343,7 @@ fn write_file_entry(sector: u32, name: &str, ext: &str, cluster: u16, size: usiz
     ata::read_sector(sector, &mut buf);
 
     for i in 0..16usize {
-        if buf[i * 32] == 0x00 {
+        if buf[i * 32] == 0x00 || buf[i * 32] == 0xE5 {
             let mut entry = [0x20u8; 32];
 
             let nb = name.as_bytes();
@@ -405,22 +405,38 @@ pub fn create_dir_at(path: &str, name: &str) -> bool {
 
 pub fn create_file_at(path: &str, name: &str, ext: &str, content: &[u8]) -> bool {
     let (fat_start, _, data_start, spc) = get_layout();
+
     let parent_sector = match resolve_path(path) {
         Some(s) => s,
-        None => return false,
+        None => {
+            return false;
+        }
     };
 
     let cluster = match find_free_cluster(fat_start) {
         Some(c) => c,
-        None => return false,
+        None => {
+            return false;
+        }
     };
+
+    mark_cluster_used(fat_start, cluster);
+
+    // בדוק שה-FAT אכן עודכן
+    let mut verify = [0u8; 512];
+    ata::read_sector(fat_start, &mut verify);
+    let val = u16::from_le_bytes([
+        verify[cluster as usize * 2],
+        verify[cluster as usize * 2 + 1],
+    ]);
+    if val == 0xFFFF {
+    } else {
+    }
 
     let mut data = [0u8; 512];
     let len = content.len().min(512);
     data[..len].copy_from_slice(&content[..len]);
     ata::write_sector(data_start + (cluster as u32 - 2) * spc, &data);
-    mark_cluster_used(fat_start, cluster);
-
     write_file_entry(parent_sector, name, ext, cluster, len)
 }
 
@@ -438,4 +454,182 @@ pub fn read_file_at(path: &str, name: &str, ext: &str, buf: &mut [u8; 512]) -> u
         }
         None => 0,
     }
+}
+
+pub fn list_dir(path: &str) -> [u8; 128] {
+    let (_, root_start, _, _) = get_layout();
+
+    let sector = if path == "/" {
+        root_start
+    } else {
+        match resolve_path(&path[1..]) {
+            // חותך את ה-/ מהתחלה
+            Some(s) => s,
+            None => return [0u8; 128],
+        }
+    };
+
+    let mut root = [0u8; 512];
+    ata::read_sector(sector, &mut root);
+
+    let mut buf = [0u8; 128];
+    let mut len = 0;
+
+    for i in 0..16 {
+        let entry = &root[i * 32..(i + 1) * 32];
+        if entry[0] == 0x00 {
+            break;
+        }
+        if entry[0] == 0xE5 {
+            continue;
+        }
+
+        let attr = entry[11];
+        let is_dir = attr & 0x10 != 0;
+
+        let name = core::str::from_utf8(&entry[0..8]).unwrap_or("").trim_end();
+        let ext = core::str::from_utf8(&entry[8..11]).unwrap_or("").trim_end();
+
+        // הוסף שם
+        for &b in name.as_bytes() {
+            if len < buf.len() {
+                buf[len] = b;
+                len += 1;
+            }
+        }
+
+        if is_dir {
+            // תיקייה — הוסף /
+            if len < buf.len() {
+                buf[len] = b'/';
+                len += 1;
+            }
+        } else {
+            // קובץ — הוסף .ext
+            if len < buf.len() {
+                buf[len] = b'.';
+                len += 1;
+            }
+            for &b in ext.as_bytes() {
+                if len < buf.len() {
+                    buf[len] = b;
+                    len += 1;
+                }
+            }
+        }
+
+        if len < buf.len() {
+            buf[len] = b' ';
+            len += 1;
+        }
+    }
+
+    buf
+}
+
+pub fn delete_file_at(path: &str, name: &str, ext: &str) -> bool {
+    let (_, root_start, _, _) = get_layout();
+
+    let sector = if path == "/" {
+        root_start
+    } else {
+        match resolve_path(&path[1..]) {
+            Some(s) => s,
+            None => return false,
+        }
+    };
+
+    let mut root = [0u8; 512];
+    ata::read_sector(sector, &mut root);
+
+    for i in 0..16 {
+        let offset = i * 32;
+        if root[offset] == 0x00 {
+            break;
+        }
+        if root[offset] == 0xE5 {
+            continue;
+        }
+
+        let ename = core::str::from_utf8(&root[offset..offset + 8])
+            .unwrap_or("")
+            .trim_end();
+        let eext = core::str::from_utf8(&root[offset + 8..offset + 11])
+            .unwrap_or("")
+            .trim_end();
+
+        if ename.eq_ignore_ascii_case(name) && eext.eq_ignore_ascii_case(ext) {
+            root[offset] = 0xE5;
+            ata::write_sector(sector, &root);
+            return true;
+        }
+    }
+    false
+}
+
+pub fn delete_dir_at(path: &str, name: &str) -> bool {
+    let (fat_start, root_start, data_start, spc) = get_layout();
+
+    let parent_sector = if path == "/" {
+        root_start
+    } else {
+        match resolve_path(&path[1..]) {
+            Some(s) => s,
+            None => return false,
+        }
+    };
+
+    // מצא את ה-entry של התיקייה
+    let cluster = match find_entry(parent_sector, name, "", true) {
+        Some(c) => c,
+        None => return false, // תיקייה לא נמצאה
+    };
+
+    // בדוק שהתיקייה ריקה
+    let dir_sector = data_start + (cluster as u32 - 2) * spc;
+    let mut buf = [0u8; 512];
+    ata::read_sector(dir_sector, &mut buf);
+    for i in 0..16 {
+        let entry = &buf[i * 32..(i + 1) * 32];
+        if entry[0] == 0x00 {
+            break;
+        }
+        if entry[0] == 0xE5 {
+            continue;
+        }
+        // יש קבצים בפנים — אסור למחוק
+        return false;
+    }
+
+    // שחרר cluster ב-FAT
+    let mut fat_buf = [0u8; 512];
+    ata::read_sector(fat_start, &mut fat_buf);
+    fat_buf[cluster as usize * 2] = 0x00;
+    fat_buf[cluster as usize * 2 + 1] = 0x00;
+    ata::write_sector(fat_start, &fat_buf);
+
+    // מחק את ה-entry
+    let mut parent_buf = [0u8; 512];
+    ata::read_sector(parent_sector, &mut parent_buf);
+    for i in 0..16 {
+        let offset = i * 32;
+        if parent_buf[offset] == 0x00 {
+            break;
+        }
+        if parent_buf[offset] == 0xE5 {
+            continue;
+        }
+
+        let ename = core::str::from_utf8(&parent_buf[offset..offset + 8])
+            .unwrap_or("")
+            .trim_end();
+
+        if ename.eq_ignore_ascii_case(name) {
+            parent_buf[offset] = 0xE5;
+            ata::write_sector(parent_sector, &parent_buf);
+            return true;
+        }
+    }
+
+    false
 }

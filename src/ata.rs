@@ -74,5 +74,28 @@ pub fn write_sector(sector: u32, buf: &[u8; 512]) {
             let word = buf[i * 2] as u16 | ((buf[i * 2 + 1] as u16) << 8);
             data_port.write(word);
         }
+
+        // שלב 7: חכה שהכתיבה תסתיים
+        let mut tries = 0u32;
+        loop {
+            let status = Port::<u8>::new(0x1F7).read();
+            if status & 0x80 == 0 {
+                // BSY bit נכבה = סיים
+                break;
+            }
+            tries += 1;
+            if tries > 100_000 {
+                break;
+            }
+        }
+
+        // שלב 8: cache flush
+        Port::<u8>::new(0x1F7).write(0xE7);
+        loop {
+            let status = Port::<u8>::new(0x1F7).read();
+            if status & 0x80 == 0 {
+                break;
+            }
+        }
     }
 }

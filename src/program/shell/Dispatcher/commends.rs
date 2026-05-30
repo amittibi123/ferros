@@ -31,7 +31,7 @@ pub fn command_disktest(_args: &str) {
     }
 }
 
-pub fn command_write(args: &str) {
+pub fn command_write(args: &str, dir: &mut heapless::String<64>) {
     // פורמט: WRITE filename.txt תוכן
     let mut parts = args.splitn(2, ' ');
     let filename = parts.next().unwrap_or("");
@@ -42,7 +42,7 @@ pub fn command_write(args: &str) {
     let name = name_ext.next().unwrap_or("FILE");
     let ext = name_ext.next().unwrap_or("TXT");
 
-    if crate::fat::create_file(name, ext, content.as_bytes()) {
+    if crate::fat::create_file_at(dir, name, ext, content.as_bytes()) {
         crate::WRITER.get().unwrap().lock().println("File created!");
     } else {
         crate::WRITER
@@ -53,13 +53,13 @@ pub fn command_write(args: &str) {
     }
 }
 
-pub fn command_read(args: &str) {
+pub fn command_read(args: &str, dir: &mut heapless::String<64>) {
     let mut name_ext = args.splitn(2, '.');
     let name = name_ext.next().unwrap_or("");
     let ext = name_ext.next().unwrap_or("");
 
     let mut buf = [0u8; 512];
-    let size = crate::fat::read_file(name, ext, &mut buf);
+    let size = crate::fat::read_file_at(dir, name, ext, &mut buf);
 
     if size == 0 {
         crate::WRITER
@@ -74,12 +74,12 @@ pub fn command_read(args: &str) {
     crate::WRITER.get().unwrap().lock().println(content);
 }
 
-pub fn command_delete(args: &str) {
+pub fn command_delete(args: &str, dir: &mut heapless::String<64>) {
     let mut name_ext = args.splitn(2, '.');
     let name = name_ext.next().unwrap_or("");
     let ext = name_ext.next().unwrap_or("");
 
-    let successfully: bool = crate::fat::delete_file(name, ext);
+    let successfully: bool = crate::fat::delete_file_at(dir, name, ext);
     crate::WRITER
         .get()
         .unwrap()
@@ -91,16 +91,16 @@ pub fn command_delete(args: &str) {
         });
 }
 
-pub fn commeand_list(args: &str) {
-    let raw_buf = crate::fat::list_files();
+pub fn commeand_list(args: &str, dir: &mut heapless::String<64>) {
+    let raw_buf = crate::fat::list_dir(dir.as_str());
     let string_list = core::str::from_utf8(&raw_buf).unwrap_or("");
     crate::WRITER.get().unwrap().lock().println(string_list);
 }
 
-pub fn mkdir(args: &str) {
+pub fn mkdir(args: &str, dir: &mut heapless::String<64>) {
     let mut parts = args.splitn(2, ' ');
     let name = parts.next().unwrap_or("");
-    let successfully: bool = crate::fat::create_dir(name);
+    let successfully: bool = crate::fat::create_dir_at(dir, name);
     crate::WRITER
         .get()
         .unwrap()
@@ -112,10 +112,33 @@ pub fn mkdir(args: &str) {
         });
 }
 
+pub fn rmdir(args: &str, dir: &mut heapless::String<64>) {
+    let mut parts = args.splitn(2, ' ');
+    let name = parts.next().unwrap_or("");
+    let sccessfully: bool = crate::fat::delete_dir_at(dir, name);
+    crate::WRITER.get().unwrap().lock().println(if sccessfully {
+        "deleted successfully"
+    } else {
+        "deleting failed"
+    });
+}
+
 // הפונקציה עכשיו מקבלת רפרנס למחרוזת של heapless ויכולה לעדכן אותה בבטחה
 pub fn cd(args: &str, dir: &mut heapless::String<64>) {
     let mut parts = args.splitn(2, ' ');
     let new_dir = parts.next().unwrap_or("");
+    let raw_buf = crate::fat::list_dir(dir.as_str());
+    let dir_str = core::str::from_utf8(&raw_buf)
+        .unwrap_or("")
+        .trim_end_matches('\0');
+    if !dir_str.contains(new_dir) && new_dir != ".." && new_dir != "/" {
+        crate::WRITER
+            .get()
+            .unwrap()
+            .lock()
+            .println("dir doesn't exists");
+        return;
+    }
     match new_dir {
         ".." => pop_directory(dir),
         "/" => {
