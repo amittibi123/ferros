@@ -17,8 +17,8 @@ use spin::Once;
 use limine::request::MemmapRequest;
 use spin::Mutex as SpinMutex;
 use limine::request::HhdmRequest;
-use crate::processes::{frame_allocator, loader, memory};
-
+use crate::processes::{frame_allocator, loader, memory, syscall};
+use crate::processes::syscall::{qemu_print_char, qemu_print_str};
 
 pub static FRAME_ALLOCATOR: Once<SpinMutex<frame_allocator::FrameAllocator>> = Once::new();
 
@@ -41,7 +41,7 @@ static BASE_REVISION: BaseRevision = BaseRevision::new();
 static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 
 pub fn handle_key(key: char) {
-    program::set_key(key);
+    syscall::set_key(key);
 }
 
 #[no_mangle]
@@ -53,19 +53,6 @@ extern "C" fn kmain() -> ! {
         FRAME_ALLOCATOR.call_once(|| {
             SpinMutex::new(frame_allocator::FrameAllocator::new(mmap))
         });
-    }
-
-    if let (Some(hhdm), Some(mmap)) = (HHDM_REQUEST.response(), MEMORY_MAP_REQUEST.response()) {
-        let mut allocator = processes::frame_allocator::FrameAllocator::new(mmap);
-        let space = processes::memory::create_process_page_table(hhdm.offset, &mut allocator);
-        let code_frame = processes::memory::map_user_page(hhdm.offset, &space, &mut allocator, 0x500000);
-        processes::memory::map_user_stack(hhdm.offset, &space, &mut allocator, 0x700000);
-        unsafe {
-            let dest = (hhdm.offset + code_frame.start_address().as_u64()) as *mut u8;
-            core::ptr::copy_nonoverlapping(processes::loader::TEST_PROGRAM.as_ptr(), dest, processes::loader::TEST_PROGRAM.len());
-            processes::memory::switch_to(&space);
-            processes::usermode::jump_to_user_mode(0x500000, 0x700000);
-        }
     }
 
     if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
@@ -81,7 +68,20 @@ extern "C" fn kmain() -> ! {
             });
             let mut buf = [0u8; 512];
             ata::read_sector(0, &mut buf);
-            program::start();
+        }
+    }
+
+    if let (Some(hhdm), Some(mmap)) = (HHDM_REQUEST.response(), MEMORY_MAP_REQUEST.response()) {
+        let mut allocator = processes::frame_allocator::FrameAllocator::new(mmap);
+        let space = processes::memory::create_process_page_table(hhdm.offset, &mut allocator);
+        let code_frame = processes::memory::map_user_page(hhdm.offset, &space, &mut allocator, 0x500000);
+        processes::memory::map_user_stack(hhdm.offset, &space, &mut allocator, 0x700000);
+        processes::syscall::init_syscalls();
+        unsafe {
+            let dest = (hhdm.offset + code_frame.start_address().as_u64()) as *mut u8;
+            core::ptr::copy_nonoverlapping(processes::loader::TEST_PROGRAM.as_ptr(), dest, processes::loader::TEST_PROGRAM.len());
+            processes::memory::switch_to(&space);
+            processes::usermode::jump_to_user_mode(0x500000, 0x700000);
         }
     }
 

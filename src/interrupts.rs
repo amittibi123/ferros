@@ -8,6 +8,7 @@ use spin::Mutex;
 
 use lazy_static::lazy_static;
 
+
 pub const PIC_1_OFFSET: u8 = 32;
 
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -20,7 +21,6 @@ lazy_static! {
         let mut idt = InterruptDescriptorTable::new();
 
         idt[33].set_handler_fn(keyboard_handler);
-
         idt
     };
 }

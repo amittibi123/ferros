@@ -1,3 +1,4 @@
+use core::arch::asm;
 use crate::WRITER;
 use limine::framebuffer::Framebuffer;
 use pic8259::ChainedPics;
@@ -148,6 +149,28 @@ impl Writer {
             width,
             height,
             pitch,
+        }
+    }
+
+    pub fn qemu_print_char(c: u8) {
+        unsafe {
+            asm!(
+            "out dx, al",
+            in("dx") 0xe9u16, // the debug i/o port
+            in("al") c,       // the character byte to log
+            );
+        }
+    }
+
+    pub fn qemu_print_str(self, s: &str) {
+        for byte in s.bytes() {
+            unsafe {
+                asm!(
+                "out dx, al",
+                in("dx") 0xe9u16, // the debug i/o port
+                in("al") byte,       // the character byte to log
+                );
+            }
         }
     }
 

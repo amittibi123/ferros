@@ -36,4 +36,4 @@ fi
 echo "✅ Ferros נבנתה בהצלחה!"
 
 # 9. הרצה ב-QEMU עם תצוגת cocoa שמתאימה למק (במקום gtk)
-qemu-system-x86_64 -boot d -cdrom my_os.iso -drive file=disk.img,format=raw,id=disk0 -display cocoa -debugcon stdio -global isa-debugcon.iobase=0xE9
+qemu-system-x86_64 -boot d -cdrom my_os.iso -drive file=disk.img,format=raw,id=disk0 -display cocoa -debugcon stdio -global isa-debugcon.iobase=0xE9 -d int,cpu_reset -D qemu.log -no-reboot -no-shutdown

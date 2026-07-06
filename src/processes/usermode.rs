@@ -3,6 +3,8 @@ use core::arch::asm;
 const USER_CODE_SELECTOR: u64 = 0x20 | 3; // 0x23
 const USER_DATA_SELECTOR: u64 = 0x18 | 3; // 0x1B
 
+
+
 pub unsafe fn jump_to_user_mode(entry_point: u64, user_stack: u64) -> ! {
     asm!(
     "mov ax, {data_sel:x}",

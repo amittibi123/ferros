@@ -88,8 +88,8 @@ static mut GDT: Gdt = Gdt {
     null:        GdtEntry::new(0,      0,    0   ),
     kernel_code: GdtEntry::new(0xFFFF, 0x9A, 0xAF),
     kernel_data: GdtEntry::new(0xFFFF, 0x92, 0x00),
-    user_data:   GdtEntry::new(0xFFFF, 0xF2, 0x00), // DPL=3, data
-    user_code:   GdtEntry::new(0xFFFF, 0xFA, 0xAF), // DPL=3, code
+    user_data:   GdtEntry::new(0xFFFF, 0xF2, 0x00),
+    user_code:   GdtEntry::new(0xFFFF, 0xFA, 0xAF),
     tss: TssDescriptor {
         limit_low: 0, base_low: 0, base_middle: 0,
         access: 0x89, granularity: 0, base_high: 0,
@@ -97,13 +97,14 @@ static mut GDT: Gdt = Gdt {
     },
 };
 
+// יצרנו את הפוינטר כסטטי גלובלי כדי שלא ייעלם מהמחסנית בזמן הטעינה
+static mut GDT_PTR: GdtPointer = GdtPointer { size: 0, base: 0 };
+
 pub fn init() {
     unsafe {
-        // הגדרת ה-stack של ring 0 שישמש כשקוד user מבצע interrupt/syscall
         let stack_top = &raw const KERNEL_STACK as u64 + (4096 * 4) as u64;
         TSS.rsp0 = stack_top;
 
-        // מילוי כתובת ה-TSS בתוך ה-descriptor שלו
         let tss_addr = &raw const TSS as u64;
         let tss_limit = (size_of::<Tss>() - 1) as u16;
 
@@ -113,13 +114,12 @@ pub fn init() {
         GDT.tss.base_high = ((tss_addr >> 24) & 0xFF) as u8;
         GDT.tss.base_upper = (tss_addr >> 32) as u32;
 
-        let ptr = GdtPointer {
-            size: (size_of::<Gdt>() - 1) as u16,
-            base: &raw const GDT as u64,
-        };
+        GDT_PTR.size = (size_of::<Gdt>() - 1) as u16;
+        GDT_PTR.base = &raw const GDT as u64;
 
+        // שינוי מבנה האסמבלי: טוענים את הכתובת של המצביע ישירות לרגיסטר
         asm!(
-        "lgdt [{0}]",
+        "lgdt [{ptr_reg}]",
         "push 0x08",
         "lea rax, [2f]",
         "push rax",
@@ -131,9 +131,9 @@ pub fn init() {
         "mov ss, ax",
         "mov fs, ax",
         "mov gs, ax",
-        "mov ax, 0x28", // selector של ה-TSS (offset 5*8 = 40 = 0x28)
+        "mov ax, 0x28",
         "ltr ax",
-        in(reg) &ptr,
+        ptr_reg = in(reg) &raw const GDT_PTR,
         out("rax") _,
         );
     }
