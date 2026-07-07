@@ -42,6 +42,10 @@ pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) 
                     core::hint::spin_loop();
                 }
             }
+            2 => {
+                crate::WRITER.get().unwrap().lock().clear_screen();
+                0
+            }
             _ => 0,
         }
     }
@@ -122,6 +126,7 @@ pub fn pop_from_buffer() -> Option<char> {
 
 pub fn set_key(key: char) {
     if key == '\n'{
+        crate::WRITER.get().unwrap().lock().new_line();
         unsafe {
             FINALE_STR = &KEY_BUFFER[..KEY_LEN];
             END_LINE = true;

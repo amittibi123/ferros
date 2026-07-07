@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+python3 src/processes/test/compiler.py src/processes/test/input.txt src/processes/test/output.asm
+nasm -f bin src/processes/test/output.asm -o src/processes/test/test.bin
 # 1. קומפילציה של הקרנל ב-Rust
 cargo build
 
