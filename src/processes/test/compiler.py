@@ -1,5 +1,25 @@
 import sys
 
+def _emit_if_cmp(var_name, target_val, branch_id, asm_data):
+    cmp_label = f"str_cmp_{branch_id}"
+    asm_data.append(f"{cmp_label}: db \"{target_val}\", 0")
+
+    lines = [f"    ; --- if {var_name} == '{target_val}' ---"]
+    lines.append(f"    mov rsi, [{var_name}]")
+    lines.append(f"    lea rdi, [{cmp_label}]")
+    lines.append(f".if_cmp_{branch_id}:")
+    lines.append(f"    mov al, [rsi]")
+    lines.append(f"    mov bl, [rdi]")
+    lines.append(f"    cmp al, bl")
+    lines.append(f"    jne .if_else_{branch_id}")
+    lines.append(f"    cmp al, 0")
+    lines.append(f"    je .if_true_{branch_id}")
+    lines.append(f"    inc rsi")
+    lines.append(f"    inc rdi")
+    lines.append(f"    jmp .if_cmp_{branch_id}")
+    lines.append(f".if_true_{branch_id}:")
+    return lines
+
 def compile_code(input_file, output_file):
     try:
         with open(input_file, 'r', encoding='utf-8') as f:
@@ -224,7 +244,57 @@ def compile_code(input_file, output_file):
                         name, arg = args.split(',', 1)
                         name = name.strip()
                         arg = arg.strip()
-                        asm_code.append(f"    lea rdi, [{arg}]")
+
+                        is_input_buffer = False
+                        is_ptr_var = False
+                        string_length = None
+
+                        if (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
+                            actual_str = arg[1:-1]
+                            string_length = len(actual_str)
+                            anon_label = f"str_inline_{inline_str_count}"
+                            inline_str_count += 1
+                            asm_data.append(f"{anon_label}: db \"{actual_str}\"")
+                            arg = anon_label
+                        else:
+                            for bss_line in asm_bss:
+                                if bss_line.startswith(f"{arg}:"):
+                                    if "resq" in bss_line:
+                                        is_ptr_var = True
+                                    elif "resb" in bss_line:
+                                        is_input_buffer = True
+                                    break
+                            for data_line in asm_data:
+                                if data_line.startswith(f"{arg}:"):
+                                    if "times" in data_line:
+                                        is_input_buffer = True
+                                    elif '"' in data_line:
+                                        actual_str = data_line.split('"')[1]
+                                        string_length = len(actual_str)
+                                    break
+
+                        asm_code.append(f"    ; --- call {name}, {arg} ---")
+                        if is_ptr_var:
+                            strlen_label = f"strlen_{inline_str_count}"
+                            inline_str_count += 1
+                            asm_code.append(f"    mov rdi, [{arg}]")
+                            asm_code.append(f"    xor rsi, rsi")
+                            asm_code.append(f".{strlen_label}_loop:")
+                            asm_code.append(f"    cmp byte [rdi + rsi], 0")
+                            asm_code.append(f"    je .{strlen_label}_done")
+                            asm_code.append(f"    inc rsi")
+                            asm_code.append(f"    jmp .{strlen_label}_loop")
+                            asm_code.append(f".{strlen_label}_done:")
+                        elif is_input_buffer:
+                            asm_code.append(f"    lea rdi, [{arg}]")
+                            asm_code.append(f"    mov rsi, r12")
+                        elif string_length is not None:
+                            asm_code.append(f"    lea rdi, [{arg}]")
+                            asm_code.append(f"    mov rsi, {string_length}")
+                        else:
+                            asm_code.append(f"    lea rdi, [{arg}]")
+                            asm_code.append(f"    xor rsi, rsi")
+
                         asm_code.append(f"    call {name}")
                     else:
                         name = args
@@ -240,63 +310,58 @@ def compile_code(input_file, output_file):
             asm_code.append(f"    ret\n")
 
         elif command == 'if':
-                    if '==' in args:
-                        var_name, target_val = args.split('==', 1)
-                        var_name = var_name.strip()
-                        target_val = target_val.strip().strip("'").strip('"')
+            if '==' in args:
+                var_name, target_val = args.split('==', 1)
+                var_name = var_name.strip()
+                target_val = target_val.strip().strip("'").strip('"')
 
-                        current_if_id = if_count
-                        if_count += 1
-                        if_stack.append(current_if_id)
+                end_id = if_count
+                branch_id = if_count
+                if_count += 1
+                if_stack.append({'end_id': end_id, 'branch_id': branch_id, 'closed': False})
 
-                        is_ptr_var = False
-                        for bss_line in asm_bss:
-                            if bss_line.startswith(f"{var_name}:") and "resq" in bss_line:
-                                is_ptr_var = True
-                                break
+                asm_code.extend(_emit_if_cmp(var_name, target_val, branch_id, asm_data))
+            else:
+                raise SyntaxError(f"מבנה IF לא תקין: {line}. חייב להכיל ==")
 
-                        cmp_label = f"str_cmp_{current_if_id}"
-                        asm_data.append(f"{cmp_label}: db \"{target_val}\", 0")
+        elif command == 'elif':
+            if not if_stack:
+                raise SyntaxError("נמצאה פקודת elif ללא תנאי if פתוח!")
+            if '==' not in args:
+                raise SyntaxError(f"מבנה ELIF לא תקין: {line}. חייב להכיל ==")
 
-                        asm_code.append(f"    ; --- if {var_name} == '{target_val}' ---")
-                        if is_ptr_var:
-                            asm_code.append(f"    mov rsi, [{var_name}]")
-                        else:
-                            asm_code.append(f"    lea rsi, [{var_name}]")
-                        asm_code.append(f"    lea rdi, [{cmp_label}]")
-                        asm_code.append(f".if_cmp_{current_if_id}:")
-                        asm_code.append(f"    mov al, [rsi]")
-                        asm_code.append(f"    mov bl, [rdi]")
-                        asm_code.append(f"    cmp al, bl")
-                        asm_code.append(f"    jne .if_else_{current_if_id}")
-                        asm_code.append(f"    cmp al, 0")
-                        asm_code.append(f"    je .if_true_{current_if_id}")
-                        asm_code.append(f"    inc rsi")
-                        asm_code.append(f"    inc rdi")
-                        asm_code.append(f"    jmp .if_cmp_{current_if_id}")
-                        asm_code.append(f".if_true_{current_if_id}:")
-                    else:
-                        raise SyntaxError(f"מבנה IF לא תקין: {line}. חייב להכיל ==")
+            var_name, target_val = args.split('==', 1)
+            var_name = var_name.strip()
+            target_val = target_val.strip().strip("'").strip('"')
+
+            top = if_stack[-1]
+            asm_code.append(f"    jmp .if_end_{top['end_id']}")
+            asm_code.append(f".if_else_{top['branch_id']}:")
+
+            new_branch_id = if_count
+            if_count += 1
+            top['branch_id'] = new_branch_id
+
+            asm_code.extend(_emit_if_cmp(var_name, target_val, new_branch_id, asm_data))
 
         # 8. פקודת ELSE
         elif command == 'else':
             if not if_stack:
                 raise SyntaxError("נמצאה פקודת else ללא תנאי if פתוח!")
-            current_if_id = if_stack[-1]
-            asm_code.append(f"    jmp .if_end_{current_if_id}")
-            asm_code.append(f".if_else_{current_if_id}:")
+            top = if_stack[-1]
+            asm_code.append(f"    jmp .if_end_{top['end_id']}")
+            asm_code.append(f".if_else_{top['branch_id']}:")
+            top['closed'] = True
 
         # 9. פקודת ENDIF
         elif command == 'endif':
             if not if_stack:
                 raise SyntaxError("נמצאה פקודת endif ללא תנאי if פתוח!")
-            current_if_id = if_stack.pop()
-            else_label = f".if_else_{current_if_id}:"
-            if not any(else_label in code_line for code_line in asm_code):
-                asm_code.append(else_label)
-            asm_code.append(f".if_end_{current_if_id}:")
+            top = if_stack.pop()
+            if not top['closed']:
+                asm_code.append(f".if_else_{top['branch_id']}:")
+            asm_code.append(f".if_end_{top['end_id']}:")        # 10. השמה / שינוי תו
 
-        # 10. השמה / שינוי תו
         elif command in vars:
             name = command
             if '=' in args:

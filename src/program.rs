@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::{program::shell::Dispatcher, WRITER};
-mod shell;
+pub(crate) mod shell;
 
 lazy_static! {
     static ref CURRENT_KEY: Mutex<Option<char>> = Mutex::new(None);

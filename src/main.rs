@@ -42,6 +42,7 @@ static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
 
 pub fn handle_key(key: char) {
     syscall::set_key(key);
+    program::set_key(key);
 }
 
 #[no_mangle]
@@ -68,6 +69,7 @@ extern "C" fn kmain() -> ! {
             });
             let mut buf = [0u8; 512];
             ata::read_sector(0, &mut buf);
+            program::start();
         }
     }
 

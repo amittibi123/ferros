@@ -1,11 +1,19 @@
 use core::arch::{asm, naked_asm};
+use heapless::String;
 use x86_64::registers::model_specific::{Efer, EferFlags, Msr};
 use crate::processes::usermode::jump_to_user_mode;
 
 // 1. נשנה את הפונקציה שתחזיר u64
 #[no_mangle]
-pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) -> u64 {
+pub extern "C" fn syscall_handler(
+    syscall_num: u64,
+    str_ptr: u64,
+    str_len: u64,
+    dir_ptr: u64,
+    dir_len: u64,
+) -> u64 {
     unsafe {
+        let args = ptr_to_str(str_ptr,str_len);
         match syscall_num {
             0 => {
                 let slice = core::slice::from_raw_parts(str_ptr as *const u8, str_len as usize);
@@ -23,18 +31,19 @@ pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) 
                             let user_buffer = str_ptr as *mut u8;
                             let mut bytes_written = 0;
 
-                            // העתקת התווים מהבאפר של הקרנל לבאפר של ה-User Mode
+                            let user_buffer = str_ptr as *mut u8;
+                            let mut bytes_written = 0;
+
                             for &ch in FINALE_STR.iter() {
                                 *user_buffer.add(bytes_written) = ch as u8;
                                 bytes_written += 1;
                             }
+                            *user_buffer.add(bytes_written) = 0; // null terminator - קריטי!
 
-                            // קריטי: איפוס הבאפרים והדגלים של הקרנל לשורה הבאה!
                             KEY_LEN = 0;
                             FINALE_STR = &[];
-                            END_LINE = false; // חייב לאפס גם את הדגל הזה!
+                            END_LINE = false;
 
-                            // תיקון קריטי: שימוש ב-return מפורש כדי לצאת מה-syscall ולהחזיר את האורך ב-RAX
                             return bytes_written as u64;
                         }
                     }
@@ -46,10 +55,40 @@ pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) 
                 crate::WRITER.get().unwrap().lock().clear_screen();
                 0
             }
+            10 => {
+                crate::program::shell::Dispatcher::commends::command_disktest(ptr_to_str(str_ptr,str_len));
+                crate::program::shell::Dispatcher::commends
+                ::command_write("TEST.TXT HELLO WORLD", &mut str_to_string("/"));
+                crate::program::shell::Dispatcher::commends::commeand_list(&mut str_to_string("/"));
+                0
+            }
+            11 => {
+                crate::program::shell::Dispatcher::commends
+                ::command_write
+                    (ptr_to_str(str_ptr,str_len),
+                     &mut String::try_from(ptr_to_str(dir_ptr, dir_len)).unwrap_or_default());
+                0
+            }
+            12 => {
+                crate::program::shell::Dispatcher::commends::commeand_list(
+                                                                           &mut String::try_from(ptr_to_str(dir_ptr, dir_len)).unwrap_or_default());
+                0
+            }
             _ => 0,
         }
     }
 }
+
+// שים לב: הפונקציה כבר לא צריכה להיות unsafe!
+fn str_to_string(s: &str) -> heapless::String<64> {
+    heapless::String::<64>::try_from(s).unwrap_or_default()
+}
+
+unsafe fn ptr_to_str<'a>(str_ptr: u64, str_len: u64) -> &'a str {
+    let slice = core::slice::from_raw_parts(str_ptr as *const u8, str_len as usize);
+    core::str::from_utf8(slice).unwrap_or("")
+}
+
 #[unsafe(naked)]
 pub extern "C" fn asm_syscall_handler() {
     unsafe {
@@ -59,7 +98,8 @@ pub extern "C" fn asm_syscall_handler() {
             "push rbp",
             "push rbx",
 
-            "mov rdi, rax",
+            "mov rcx, r10",     // dir_ptr -> ארגומנט 4 (SysV: rdi,rsi,rdx,rcx,r8,r9)
+            "mov rdi, rax",     // syscall_num -> ארגומנט 1
 
             "call syscall_handler",
 

@@ -1,4 +1,5 @@
 import src/processes/test/pars.asm
+import src/processes/test/std.asm
 
 goto main
 
@@ -29,6 +30,16 @@ def main
 def dispatcher
     if cmd == "ECHO"
         print args
+    elif cmd == "HELP"
+        print "usage: ..."
+    elif cmd == "CLEAR"
+        call clear_screen
+    elif cmd == "DISKTEST"
+        call disk_test, dir
+    elif cmd == "WRITE"
+        call write_to_disk, args
+    elif cmd == "LS"
+        call ls_disk
     else
         print_raw "did not find cmd: "
         print cmd

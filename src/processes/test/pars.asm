@@ -4,40 +4,41 @@
 ; פלט:   דוחפת את הכתובות של המילים ישירות ל-Stack
 ; =====================================================================
 tokenize_to_stack:
-    ; נשמור את כתובת החזרה (כי אנחנו הולכים להשתמש במחסנית)
-    pop r9                  ; r9 מחזיק זמנית את לאן לחזור בסוף הפונקציה
-
+    pop r9                  ; כתובת חזרה
+    xor r10, r10            ; מונה טוקנים שנדחפו
 .loop_tokens:
-    ; 1. דילוג על רווחים בהתחלה
 .skip_spaces:
     mov cl, [rdi]
     cmp cl, 0
-    je .done                ; סוף המחרוזת
+    je .check_pad
     cmp cl, ' '
-    jne .found_token        ; מצאנו אות, זו תחילת מילה
+    jne .found_token
     inc rdi
     jmp .skip_spaces
-
 .found_token:
-    ; 2. דוחפים את הכתובת של תחילת המילה ישירות למחסנית!
     push rdi
-
-    ; 3. מחפשים את סוף המילה הנוכחית
+    inc r10
 .find_end:
     mov cl, [rdi]
     cmp cl, 0
-    je .done                ; סוף המחרוזת
+    je .check_pad
     cmp cl, ' '
-    je .null_terminate      ; מצאנו רווח, צריך לחתוך
+    je .null_terminate
     inc rdi
     jmp .find_end
-
 .null_terminate:
-    mov byte [rdi], 0       ; מחליפים את הרווח ב-NULL (0)
-    inc rdi                 ; מתקדמים תו אחד קדימה
-    jmp .loop_tokens        ; ממשיכים לחפש את המילה הבאה
-
+    mov byte [rdi], 0
+    inc rdi
+    jmp .loop_tokens
+.check_pad:
+    cmp r10, 2
+    jge .done
+    lea rax, [empty_string]
+    push rax
+    inc r10
+    jmp .check_pad
 .done:
-    ; מחזירים את כתובת החזרה למחסנית כדי ש-ret יעבוד כמו שצריך
     push r9
     ret
+
+empty_string: db 0

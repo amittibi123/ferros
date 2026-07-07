@@ -1,4 +1,4 @@
-use crate::WRITER;
+use crate::{processes, HHDM_REQUEST, MEMORY_MAP_REQUEST, WRITER};
 
 pub fn command_echo(args: &str) {
     // כאן אתה משתמש ב-print! של הקרנל שלך
@@ -91,7 +91,7 @@ pub fn command_delete(args: &str, dir: &mut heapless::String<64>) {
         });
 }
 
-pub fn commeand_list(args: &str, dir: &mut heapless::String<64>) {
+pub fn commeand_list(dir: &mut heapless::String<64>) {
     let raw_buf = crate::fat::list_dir(dir.as_str());
     let string_list = core::str::from_utf8(&raw_buf).unwrap_or("");
     crate::WRITER.get().unwrap().lock().println(string_list);
@@ -168,4 +168,21 @@ pub fn pop_directory(directory: &mut heapless::String<64>) {
             directory.truncate(last_slash_idx);
         }
     }
+}
+
+pub fn switch(){
+    if let (Some(hhdm), Some(mmap)) = (HHDM_REQUEST.response(), MEMORY_MAP_REQUEST.response()) {
+        let mut allocator = processes::frame_allocator::FrameAllocator::new(mmap);
+        let space = processes::memory::create_process_page_table(hhdm.offset, &mut allocator);
+        let code_frame = processes::memory::map_user_page(hhdm.offset, &space, &mut allocator, 0x500000);
+        processes::memory::map_user_stack(hhdm.offset, &space, &mut allocator, 0x700000);
+        processes::syscall::init_syscalls();
+        unsafe {
+            let dest = (hhdm.offset + code_frame.start_address().as_u64()) as *mut u8;
+            core::ptr::copy_nonoverlapping(processes::loader::TEST_PROGRAM.as_ptr(), dest, processes::loader::TEST_PROGRAM.len());
+            processes::memory::switch_to(&space);
+            processes::usermode::jump_to_user_mode(0x500000, 0x700000);
+        }
+    }
+
 }
