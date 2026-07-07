@@ -10,6 +10,7 @@ def compile_code(input_file, output_file):
 
     asm_code = []
     asm_data = []
+    asm_bss = []  # <<< רשימה חדשה עבור משתני .bss
     vars = []
 
     # מונים פנימיים ללייבלים ייחודיים
@@ -17,11 +18,12 @@ def compile_code(input_file, output_file):
     if_count = 0
     if_stack = []  # מחסנית למעקב אחרי ה-IF-ים הפתוחים
 
+    libs = []
+
     for line in lines:
         line = line.strip()
         line = line.split('#')[0].strip()
 
-            # אם השורה הייתה רק קומנט (או שורה ריקה), היא עכשיו ריקה לחלוטין - אז מדלגים
         if not line:
             continue
 
@@ -29,8 +31,29 @@ def compile_code(input_file, output_file):
         command = parts[0]
         args = parts[1].strip() if len(parts) > 1 else ""
 
-        # 1. הגדרת משתנה
-        if command == 'var':
+        # =================================================================
+        # פקודה חדשה: tokens (להגדרת משתנים ריקים ב- .bss)
+        # פורמט מצופה: tokens name = size_in_bytes (למשל tokens cmd = 40)
+        # או עבור פוינטר: tokens my_ptr = q (מילה מרובעת - 8 בתים)
+        # =================================================================
+        if command == 'tokens':
+            if '=' in args:
+                name, size = args.split('=', 1)
+                name = name.strip()
+                size = size.strip()
+                vars.append(name)
+
+                if size == 'q':
+                    # הגדרת פוינטר של 64 סיביות (8 בתים) עם יישור זיכרון
+                    asm_bss.append("align 8")
+                    asm_bss.append(f"{name}: resq 1")
+                else:
+                    # הגדרת באפר בגודל מותאם אישית בבתים
+                    asm_bss.append(f"{name}: resb {size}")
+            continue
+
+        # 1. הגדרת משתנה מאותחל (נשאר ב-.data)
+        elif command == 'var':
             if '=' in args:
                 name, val = args.split('=', 1)
                 name = name.strip()
@@ -45,10 +68,25 @@ def compile_code(input_file, output_file):
                 else:
                     asm_data.append(f"{name}: db {val}")
 
-        # 2. פקודת הדפסה רגילה (עם שורה חדשה)
+        elif command == 'var_q':
+            if '=' in args:
+                name, val = args.split('=', 1)
+                name = name.strip()
+                val = val.strip()
+                vars.append(name)
+                if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+                    actual_str = val[1:-1]
+                    if actual_str == "\\n" or actual_str == "\n":
+                        asm_data.append(f"{name}: dq 10")
+                    else:
+                        asm_data.append(f"{name}: dq \"{actual_str}\"")
+                else:
+                    asm_data.append(f"{name}: dq {val}")
+
         elif command == 'print':
             name = args
             is_input_buffer = False
+            is_ptr_var = False
             string_length = 0
 
             if (name.startswith('"') and name.endswith('"')) or (name.startswith("'") and name.endswith("'")):
@@ -59,6 +97,13 @@ def compile_code(input_file, output_file):
                 asm_data.append(f"{anon_label}: db \"{actual_str}\"")
                 name = anon_label
             else:
+                for bss_line in asm_bss:
+                    if bss_line.startswith(f"{name}:"):
+                        if "resq" in bss_line:
+                            is_ptr_var = True
+                        elif "resb" in bss_line:
+                            is_input_buffer = True
+                        break
                 for data_line in asm_data:
                     if data_line.startswith(f"{name}:"):
                         if "times" in data_line:
@@ -69,23 +114,38 @@ def compile_code(input_file, output_file):
                         break
 
             asm_code.append(f"    ; --- print {args} (with newline) ---")
-            if is_input_buffer:
+            if is_ptr_var:
+                strlen_label = f"strlen_{inline_str_count}"
+                inline_str_count += 1
+                asm_code.append(f"    mov rsi, [{name}]")
+                asm_code.append(f"    xor rdx, rdx")
+                asm_code.append(f".{strlen_label}_loop:")
+                asm_code.append(f"    cmp byte [rsi + rdx], 0")
+                asm_code.append(f"    je .{strlen_label}_done")
+                asm_code.append(f"    inc rdx")
+                asm_code.append(f"    jmp .{strlen_label}_loop")
+                asm_code.append(f".{strlen_label}_done:")
+                asm_code.append(f"    xor eax, eax")
+                asm_code.append(f"    syscall")
+            elif is_input_buffer:
                 asm_code.append(f"    mov rdx, r12")
+                asm_code.append(f"    xor eax, eax")
+                asm_code.append(f"    lea rsi, [{name}]")
+                asm_code.append(f"    syscall")
             else:
                 asm_code.append(f"    mov rdx, {string_length}")
-
-            asm_code.append(f"    xor eax, eax")
-            asm_code.append(f"    lea rsi, [{name}]")
-            asm_code.append(f"    syscall")
+                asm_code.append(f"    xor eax, eax")
+                asm_code.append(f"    lea rsi, [{name}]")
+                asm_code.append(f"    syscall")
             asm_code.append(f"    mov rdx, 1")
             asm_code.append(f"    xor eax, eax")
             asm_code.append(f"    lea rsi, [global_newline]")
             asm_code.append(f"    syscall\n")
-
         # 3. פקודת הדפסה ישירה (בלי שורה חדשה)
         elif command == 'print_raw':
             name = args
             is_input_buffer = False
+            is_ptr_var = False
             string_length = 0
 
             if (name.startswith('"') and name.endswith('"')) or (name.startswith("'") and name.endswith("'")):
@@ -96,6 +156,13 @@ def compile_code(input_file, output_file):
                 asm_data.append(f"{anon_label}: db \"{actual_str}\"")
                 name = anon_label
             else:
+                for bss_line in asm_bss:
+                    if bss_line.startswith(f"{name}:"):
+                        if "resq" in bss_line:
+                            is_ptr_var = True
+                        elif "resb" in bss_line:
+                            is_input_buffer = True
+                        break
                 for data_line in asm_data:
                     if data_line.startswith(f"{name}:"):
                         if "times" in data_line:
@@ -106,20 +173,34 @@ def compile_code(input_file, output_file):
                         break
 
             asm_code.append(f"    ; --- print_raw {args} ---")
-            if is_input_buffer:
+            if is_ptr_var:
+                strlen_label = f"strlen_{inline_str_count}"
+                inline_str_count += 1
+                asm_code.append(f"    mov rsi, [{name}]")
+                asm_code.append(f"    xor rdx, rdx")
+                asm_code.append(f".{strlen_label}_loop:")
+                asm_code.append(f"    cmp byte [rsi + rdx], 0")
+                asm_code.append(f"    je .{strlen_label}_done")
+                asm_code.append(f"    inc rdx")
+                asm_code.append(f"    jmp .{strlen_label}_loop")
+                asm_code.append(f".{strlen_label}_done:")
+                asm_code.append(f"    xor eax, eax")
+                asm_code.append(f"    syscall\n")
+            elif is_input_buffer:
                 asm_code.append(f"    mov rdx, r12")
+                asm_code.append(f"    xor eax, eax")
+                asm_code.append(f"    lea rsi, [{name}]")
+                asm_code.append(f"    syscall\n")
             else:
                 asm_code.append(f"    mov rdx, {string_length}")
-
-            asm_code.append(f"    xor eax, eax")
-            asm_code.append(f"    lea rsi, [{name}]")
-            asm_code.append(f"    syscall\n")
-
-        # 4. פקודת קלט: input name
+                asm_code.append(f"    xor eax, eax")
+                asm_code.append(f"    lea rsi, [{name}]")
+                asm_code.append(f"    syscall\n")
+        # 4. פקודת קלט: input name (מעביר ל-bss במקום ל-times)
         elif command == 'input':
             name = args
             if name not in vars:
-                asm_data.append(f"{name}: times 64 db 0")
+                asm_bss.append(f"{name}: resb 64")
                 vars.append(name)
 
             asm_code.append(f"    ; --- input {name} ---")
@@ -128,7 +209,7 @@ def compile_code(input_file, output_file):
             asm_code.append(f"    syscall")
             asm_code.append(f"    mov r12, rax\n")
 
-        # 5. הגדרת לייבל/פונקציה: גלובלי (בלי נקודה) כדי למנוע התנגשויות
+        # 5. הגדרת לייבל/פונקציה
         elif command == 'def':
             asm_code.append(f"{args}:")
 
@@ -138,29 +219,64 @@ def compile_code(input_file, output_file):
 
         # 6ב. פקודת קריאה לפונקציה: call name
         elif command == 'call':
-            asm_code.append(f"    call {args}")
+                    args = args.strip()
+                    if ',' in args:
+                        name, arg = args.split(',', 1)
+                        name = name.strip()
+                        arg = arg.strip()
+                        asm_code.append(f"    lea rdi, [{arg}]")
+                        asm_code.append(f"    call {name}")
+                    else:
+                        name = args
+                        asm_code.append(f"    call {name}")
+
+        elif command == 'pop':
+            var = args
+            asm_code.append("    pop rax")
+            asm_code.append(f"    mov [{var}], rax ")
 
         # 6ג. פקודת חזרה מפונקציה: ret
         elif command == 'ret':
             asm_code.append(f"    ret\n")
 
-        # 7. פקודת IF
         elif command == 'if':
-            if '==' in args:
-                var_name, target_val = args.split('==', 1)
-                var_name = var_name.strip()
-                target_val = target_val.strip().strip("'").strip('"')
+                    if '==' in args:
+                        var_name, target_val = args.split('==', 1)
+                        var_name = var_name.strip()
+                        target_val = target_val.strip().strip("'").strip('"')
 
-                current_if_id = if_count
-                if_count += 1
-                if_stack.append(current_if_id)
+                        current_if_id = if_count
+                        if_count += 1
+                        if_stack.append(current_if_id)
 
-                asm_code.append(f"    ; --- if {var_name} == '{target_val}' ---")
-                asm_code.append(f"    mov al, [{var_name}]")
-                asm_code.append(f"    cmp al, '{target_val}'")
-                asm_code.append(f"    jne .if_else_{current_if_id}") # לייבלים פנימיים של IF נשארים מקומיים
-            else:
-                raise SyntaxError(f"מבנה IF לא תקין: {line}. חייב להכיל ==")
+                        is_ptr_var = False
+                        for bss_line in asm_bss:
+                            if bss_line.startswith(f"{var_name}:") and "resq" in bss_line:
+                                is_ptr_var = True
+                                break
+
+                        cmp_label = f"str_cmp_{current_if_id}"
+                        asm_data.append(f"{cmp_label}: db \"{target_val}\", 0")
+
+                        asm_code.append(f"    ; --- if {var_name} == '{target_val}' ---")
+                        if is_ptr_var:
+                            asm_code.append(f"    mov rsi, [{var_name}]")
+                        else:
+                            asm_code.append(f"    lea rsi, [{var_name}]")
+                        asm_code.append(f"    lea rdi, [{cmp_label}]")
+                        asm_code.append(f".if_cmp_{current_if_id}:")
+                        asm_code.append(f"    mov al, [rsi]")
+                        asm_code.append(f"    mov bl, [rdi]")
+                        asm_code.append(f"    cmp al, bl")
+                        asm_code.append(f"    jne .if_else_{current_if_id}")
+                        asm_code.append(f"    cmp al, 0")
+                        asm_code.append(f"    je .if_true_{current_if_id}")
+                        asm_code.append(f"    inc rsi")
+                        asm_code.append(f"    inc rdi")
+                        asm_code.append(f"    jmp .if_cmp_{current_if_id}")
+                        asm_code.append(f".if_true_{current_if_id}:")
+                    else:
+                        raise SyntaxError(f"מבנה IF לא תקין: {line}. חייב להכיל ==")
 
         # 8. פקודת ELSE
         elif command == 'else':
@@ -189,7 +305,7 @@ def compile_code(input_file, output_file):
                 asm_code.append(f"    ; --- set {name} to {val} ---")
                 asm_code.append(f"    mov byte [{name}], '{val}'\n")
 
-# פקודה לטעינת כתובת של באפר לתוך משתנה מצביע: load_ptr my_ptr, char_input
+        # פקודה לטעינת כתובת
         elif command == 'load_ptr':
             target, source = args.split(',', 1)
             target = target.strip()
@@ -198,10 +314,11 @@ def compile_code(input_file, output_file):
             asm_code.append(f"    lea rax, [{source}]")
             asm_code.append(f"    mov [{target}], rax\n")
             if target not in vars:
-                asm_data.append(f"{target}: dq 0") # dq בשביל לשמור כתובת של 64-ביט
+                asm_bss.append("align 8")
+                asm_bss.append(f"{target}: resq 1")
                 vars.append(target)
 
-        # פקודה לקריאת התו הנוכחי שהמצביע מראה עליו לתוך משתנה: read_char my_char, my_ptr
+        # פקודה לקריאת תו
         elif command == 'read_char':
             target, ptr = args.split(',', 1)
             target = target.strip()
@@ -211,53 +328,75 @@ def compile_code(input_file, output_file):
             asm_code.append(f"    mov al, [rbx]")
             asm_code.append(f"    mov [{target}], al\n")
             if target not in vars:
-                asm_data.append(f"{target}: db 0")
+                asm_bss.append(f"{target}: resb 1")
                 vars.append(target)
 
-        # פקודה לקידום המצביע לתו הבא: inc_ptr my_ptr
+        # פקודה לקידום המצביע
         elif command == 'inc_ptr':
             ptr = args.strip()
             asm_code.append(f"    ; --- inc_ptr {ptr} ---")
             asm_code.append(f"    mov rax, [{ptr}]")
             asm_code.append(f"    inc rax")
             asm_code.append(f"    mov [{ptr}], rax\n")
-# פקודה לכתיבת תו מתוך משתנה אל הכתובת שהמצביע מראה עליה: write_char ptr_var, char_var
+
+        # פקודה לכתיבת תו
         elif command == 'write_char':
             ptr, char_var = args.split(',', 1)
             ptr = ptr.strip()
             char_var = char_var.strip()
             asm_code.append(f"    ; --- write_char {ptr}, {char_var} ---")
-            asm_code.append(f"    mov rbx, [{ptr}]")         # טוען את הכתובת שבמצביע ל-RBX
-            asm_code.append(f"    mov al, [{char_var}]")      # טוען את התו מתוך המשתנה ל-AL
-            asm_code.append(f"    mov [rbx], al")             # כותב את התו לכתובת שב-RBX\n")
-# פקודה להדפסת מחרוזת מתוך הכתובת שבמצביע: print_ptr my_ptr
+            asm_code.append(f"    mov rbx, [{ptr}]")
+            asm_code.append(f"    mov al, [{char_var}]")
+            asm_code.append(f"    mov [rbx], al")
+
+        # פקודה להדפסת מחרוזת מתוך מצביע
         elif command == 'print_ptr':
-                    ptr = args.strip()
-                    asm_code.append(f"    ; --- print_ptr {ptr} ---")
-                    asm_code.append(f"    mov rdx, r12")       # אורך המחרוזת
-                    asm_code.append(f"    cmp rdx, 0")         # בדיקה: האם האורך הוא 0?
-                    asm_code.append(f"    jle .skip_print_{ptr}") # אם הוא 0 או שלילי - אל תדפיס כלום כדי למנוע קריסה
-                    asm_code.append(f"    mov rsi, [{ptr}]")   # טעינת הכתובת הדינמית
-                    asm_code.append(f"    xor eax, eax")       # sys_print
-                    asm_code.append(f"    syscall")
-                    asm_code.append(f".skip_print_{ptr}:")
-                    # ירידת שורה קבועה
-                    asm_code.append(f"    mov rdx, 1")
-                    asm_code.append(f"    xor eax, eax")
-                    asm_code.append(f"    lea rsi, [global_newline]")
-                    asm_code.append(f"    syscall\n")
+            ptr = args.strip()
+            asm_code.append(f"    ; --- print_ptr {ptr} ---")
+            asm_code.append(f"    mov rdx, r12")
+            asm_code.append(f"    cmp rdx, 0")
+            asm_code.append(f"    jle .skip_print_{ptr}")
+            asm_code.append(f"    mov rsi, [{ptr}]")
+            asm_code.append(f"    xor eax, eax")
+            asm_code.append(f"    syscall")
+            asm_code.append(f".skip_print_{ptr}:")
+            asm_code.append(f"    mov rdx, 1")
+            asm_code.append(f"    xor eax, eax")
+            asm_code.append(f"    lea rsi, [global_newline]")
+            asm_code.append(f"    syscall\n")
+
+        elif command == 'import':
+            name = args.strip()
+            libs.append(name)
 
         else:
-            raise ValueError(f"Unknown command found: {command}")
+            raise ValueError(f"Unknown command found: {line}")
 
     if if_stack:
         raise SyntaxError("שגיאה: שכחת לסגור את אחד מתנאי ה-if באמצעות endif!")
 
+    for f in libs:
+        with open(f, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            asm_code.extend(lines)
+
+    # --- בניית הקובץ הסופי ---
     full_output = []
-    full_output.append("BITS 64\nORG 0x500000\n\nstart:")
+    full_output.append("BITS 64\nORG 0x500000\n")
+
+    # הוספת ה-BSS Section (כדי ש-NASM יידע לשים אותם בנפרד)
+    if asm_bss:
+        full_output.append("SECTION .bss")
+        full_output.extend(asm_bss)
+        full_output.append("")
+
+    # חזרה ל-Text/Data הסטנדרטי
+    full_output.append("SECTION .text\nglobal start\n\nstart:")
     full_output.extend(asm_code)
     full_output.append("    ; לולאת סיום סתמית")
     full_output.append("inf_loop:\n    jmp inf_loop\n")
+
+    full_output.append("SECTION .data")
     full_output.append("align 8")
     full_output.append("global_newline: db 10")
     full_output.extend(asm_data)

@@ -1,77 +1,37 @@
-var dir = "/"
-var cmd = "                                        " # באפר של 40 תווים לקלט
-var cmd_part = "          "                         # באפר של 10 תווים לפקודה בלבד
-var current_char = " "
-var my_ptr = 0
-var dest_ptr = 0
+import src/processes/test/pars.asm
 
 goto main
 
-def print_dir
+var dir = "/"
+
+# שימוש במילת המפתח החדשה 'tokens'
+tokens cmd = q
+tokens args = q
+
+def printDir
     print_raw dir
     print_raw ">"
     ret
 
 def main
-    print "Welcome to Ferros Shell!"
+    call printDir
+    input user_input
+    call tokenize_to_stack, user_input
 
-    def shell_loop
-        call print_dir
-        input cmd
-        call parse_cmd
-        call dispatcher
-        goto shell_loop
-    ret
+    pop args
+    pop cmd
 
-# --- פונקציית ה-Parsing המרכזית ---
-def parse_cmd
-    load_ptr my_ptr, cmd
-    load_ptr dest_ptr, cmd_part
+    call dispatcher
 
-    def read_command_loop
-        read_char current_char, my_ptr
+    goto main
 
-        # אם הגענו לרווח, סוף מחרוזת (0) או אנטר (10) - סיימנו להעתיק את הפקודה
-        if current_char == " "
-            goto end_command
-        endif
-        if current_char == 0
-            goto end_command
-        endif
-        if current_char == 10
-            goto end_command
-        endif
 
-        # העתקת התו הנוכחי מתוך cmd לתוך cmd_part
-        write_char dest_ptr, current_char
-
-        # קידום שני המצביע קדימה
-        inc_ptr my_ptr
-        inc_ptr dest_ptr
-        goto read_command_loop
-
-    def end_command
-        # שמים תו סיום (Null Terminator) בסוף ה-cmd_part כדי שיהיה מחרוזת חוקית
-        # (באסמבלי של sys_print זה פחות קריטי, אבל הרגל טוב)
-        inc_ptr my_ptr # מקדמים את המצביע של הקלט כדי שידלג על הרווח ויצביע על ה-Args!
-        ret
-
-# --- פונקציית הנתב (Dispatcher) ---
 def dispatcher
-    # עכשיו אנחנו בודקים את האות הראשונה של הפקודה שחולצה ב-cmd_part
-    if cmd_part == 'E'
-        call do_echo
+    if cmd == "ECHO"
+        print args
     else
-        print "Unknown command."
+        print_raw "did not find cmd: "
+        print cmd
     endif
-    ret
 
-# --- מימוש פקודת ECHO ---
-def do_echo
-     print_ptr my_ptr
-     ret
-
-def print_args_dynamic
-    # פקודה זמנית ישירה באסמבלי שתדפיס מתוך המצביע הדינמי שלנו
-    # (בקומפיילר הרגיל שלך lea rsi, [name] לוקח כתובת קבועה, פה אנחנו צריכים את הכתובת שבתוך המצביע)
     ret
