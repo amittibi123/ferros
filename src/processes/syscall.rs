@@ -3,6 +3,9 @@ use heapless::String;
 use x86_64::registers::model_specific::{Efer, EferFlags, Msr};
 use crate::processes::usermode::jump_to_user_mode;
 
+
+static mut isUserInput: bool = false;
+
 // 1. נשנה את הפונקציה שתחזיר u64
 #[no_mangle]
 pub extern "C" fn syscall_handler(
@@ -23,6 +26,7 @@ pub extern "C" fn syscall_handler(
                 0
             }
             1 => {
+                isUserInput = true;
                 // סיסקול 1: קבלת כל השורה שהוקלדה עד ה-Enter
                 loop {
                     unsafe {
@@ -43,6 +47,7 @@ pub extern "C" fn syscall_handler(
                             KEY_LEN = 0;
                             FINALE_STR = &[];
                             END_LINE = false;
+                            isUserInput = false;
 
                             return bytes_written as u64;
                         }
@@ -165,6 +170,7 @@ pub fn pop_from_buffer() -> Option<char> {
 }
 
 pub fn set_key(key: char) {
+    unsafe {if !isUserInput {return;}}
     if key == '\n'{
         crate::WRITER.get().unwrap().lock().new_line();
         unsafe {
@@ -179,6 +185,7 @@ pub fn set_key(key: char) {
         return;
     }
     let _ = push_to_buffer(key);
+
     crate::WRITER.get().unwrap().lock().print_char(key);
 }
 
