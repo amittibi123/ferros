@@ -15,6 +15,8 @@ pub extern "C" fn syscall_handler(
     dir_ptr: u64,
     dir_len: u64,
 ) -> u64 {
+    qemu_print_str("syscall");
+    qemu_print_u64(syscall_num);
     unsafe {
         let args = ptr_to_str(str_ptr,str_len);
         match syscall_num {
@@ -196,6 +198,32 @@ pub fn qemu_print_char(c: u8) {
         in("dx") 0xe9u16, // the debug i/o port
         in("al") c,       // the character byte to log
         );
+    }
+}
+
+pub fn qemu_print_u64(mut num: u64) {
+    // מקרה קצה: אם המספר הוא 0, מדפיסים ישר את התו '0'
+    if num == 0 {
+        qemu_print_char(b'0');
+        return;
+    }
+
+    // באפר זמני קטן על הסטאק כדי להפוך את סדר הספרות
+    // (u64 יכול להגיע לכל היותר ל-20 ספרות)
+    let mut buf = [0u8; 20];
+    let mut i = 0;
+
+    // פירוק המספר מהסוף להתחלה
+    while num > 0 {
+        buf[i] = b'0' + (num % 10) as u8; // הפיכת הספרה לתו ASCII
+        num /= 10;
+        i += 1;
+    }
+
+    // הדפסת הספרות בסדר הנכון (מההתחלה לסוף)
+    while i > 0 {
+        i -= 1;
+        qemu_print_char(buf[i]);
     }
 }
 
