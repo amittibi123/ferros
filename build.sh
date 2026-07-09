@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e
 
-python3 src/processes/test/compiler.py src/processes/test/input.txt src/processes/test/output.asm
-nasm -f bin src/processes/test/output.asm -o src/processes/test/test.bin
+clang -target x86_64-unknown-none -ffreestanding -nostdlib -fno-stack-protector -mno-red-zone -c src/processes/c_test/main.c -o src/processes/c_test/main.o
+/opt/homebrew/opt/lld/bin/ld.lld -m elf_x86_64 -static --image-base=0x500000 -Ttext=0x500000 -n -e _start -o src/processes/c_test/main.elf src/processes/c_test/main.o
+/opt/homebrew/opt/llvm/bin/llvm-objcopy -O binary src/processes/c_test/main.elf src/processes/c_test/main.bin
 # 1. קומפילציה של הקרנל ב-Rust
 cargo build
 
