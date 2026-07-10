@@ -1,4 +1,5 @@
 use crate::{processes, HHDM_REQUEST, MEMORY_MAP_REQUEST, WRITER};
+use crate::processes::syscall::qemu_print_str;
 
 pub fn command_echo(args: &str) {
     // כאן אתה משתמש ב-print! של הקרנל שלך
@@ -92,8 +93,11 @@ pub fn command_delete(args: &str, dir: &mut heapless::String<64>) {
 }
 
 pub fn commeand_list(dir: &mut heapless::String<64>) {
+    qemu_print_str("resived");
+    qemu_print_str(dir as &str);
     let raw_buf = crate::fat::list_dir(dir.as_str());
     let string_list = core::str::from_utf8(&raw_buf).unwrap_or("");
+    qemu_print_str(string_list);
     crate::WRITER.get().unwrap().lock().println(string_list);
 }
 

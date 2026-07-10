@@ -5,6 +5,8 @@
 
 #define SYS_PRINT 0
 #define SYS_READ  1
+#define SYS_CLEAR 2
+#define SYS_LIST 12
 
 // מבנה ה-String החכם של Ferros
 typedef struct {
@@ -225,6 +227,29 @@ static inline FString input(char *buffer, uint64_t max_len) {
     str.data = buffer;
     str.len = len;
     return str;
+}
+
+static inline void clear_screen() {
+    uint64_t bytes_read;
+    char buf[1];
+    asm volatile (
+        "syscall"
+        : "=a"(bytes_read)
+        : "a"(SYS_CLEAR), "S"(buf), "d"(1)
+        : "rcx", "r11", "memory"
+    );
+}
+
+static inline void list_files() {
+    uint64_t bytes_read;
+    char buf[2] = "/";
+    int64_t ret;
+    asm volatile (
+        "syscall"
+        : "=a"(ret)
+        : "a"(SYS_LIST), "S"(buf), "d"(2)
+        : "rcx", "r11", "memory"
+    );
 }
 
 #endif // FERROS_H

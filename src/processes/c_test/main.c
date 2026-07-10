@@ -7,6 +7,13 @@ static inline void dispatcher(const FString raw_cmd) {
         printf("%c\n", args);
     } else if (fstr_eq(cmd, "HELP")) {
         printf("help clear echo\n");
+    } else if (fstr_eq(cmd, "CLEAR")) {
+        clear_screen();
+    } else if (fstr_eq(cmd, "LS")) {
+        list_files();
+    }
+    else {
+        printf("cmd not found");
     }
 }
 

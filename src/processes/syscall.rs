@@ -77,8 +77,12 @@ pub extern "C" fn syscall_handler(
                 0
             }
             12 => {
-                crate::program::shell::Dispatcher::commends::commeand_list(
-                                                                           &mut String::try_from(ptr_to_str(dir_ptr, dir_len)).unwrap_or_default());
+                qemu_print_str("listing... ");
+                qemu_print_str(ptr_to_str(str_ptr, str_len));
+                let raw_buf = crate::fat::list_dir(ptr_to_str(str_ptr, str_len));
+                let string_list = core::str::from_utf8(&raw_buf).unwrap_or("");
+                qemu_print_str(string_list);
+                crate::WRITER.get().unwrap().lock().println(string_list);
                 0
             }
             _ => 0,
