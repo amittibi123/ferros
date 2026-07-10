@@ -1,11 +1,24 @@
 use core::arch::{asm, naked_asm};
+use heapless::String;
 use x86_64::registers::model_specific::{Efer, EferFlags, Msr};
 use crate::processes::usermode::jump_to_user_mode;
 
+
+static mut isUserInput: bool = false;
+
 // 1. נשנה את הפונקציה שתחזיר u64
 #[no_mangle]
-pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) -> u64 {
+pub extern "C" fn syscall_handler(
+    syscall_num: u64,
+    str_ptr: u64,
+    str_len: u64,
+    dir_ptr: u64,
+    dir_len: u64,
+) -> u64 {
+    qemu_print_str("syscall");
+    qemu_print_u64(syscall_num);
     unsafe {
+        let args = ptr_to_str(str_ptr,str_len);
         match syscall_num {
             0 => {
                 let slice = core::slice::from_raw_parts(str_ptr as *const u8, str_len as usize);
@@ -15,6 +28,7 @@ pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) 
                 0
             }
             1 => {
+                isUserInput = true;
                 // סיסקול 1: קבלת כל השורה שהוקלדה עד ה-Enter
                 loop {
                     unsafe {
@@ -23,18 +37,20 @@ pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) 
                             let user_buffer = str_ptr as *mut u8;
                             let mut bytes_written = 0;
 
-                            // העתקת התווים מהבאפר של הקרנל לבאפר של ה-User Mode
+                            let user_buffer = str_ptr as *mut u8;
+                            let mut bytes_written = 0;
+
                             for &ch in FINALE_STR.iter() {
                                 *user_buffer.add(bytes_written) = ch as u8;
                                 bytes_written += 1;
                             }
+                            *user_buffer.add(bytes_written) = 0; // null terminator - קריטי!
 
-                            // קריטי: איפוס הבאפרים והדגלים של הקרנל לשורה הבאה!
                             KEY_LEN = 0;
                             FINALE_STR = &[];
-                            END_LINE = false; // חייב לאפס גם את הדגל הזה!
+                            END_LINE = false;
+                            isUserInput = false;
 
-                            // תיקון קריטי: שימוש ב-return מפורש כדי לצאת מה-syscall ולהחזיר את האורך ב-RAX
                             return bytes_written as u64;
                         }
                     }
@@ -46,10 +62,44 @@ pub extern "C" fn syscall_handler(syscall_num: u64, str_ptr: u64, str_len: u64) 
                 crate::WRITER.get().unwrap().lock().clear_screen();
                 0
             }
+            10 => {
+                crate::program::shell::Dispatcher::commends::command_disktest(ptr_to_str(str_ptr,str_len));
+                crate::program::shell::Dispatcher::commends
+                ::command_write("TEST.TXT HELLO WORLD", &mut str_to_string("/"));
+                crate::program::shell::Dispatcher::commends::commeand_list(&mut str_to_string("/"));
+                0
+            }
+            11 => {
+                crate::program::shell::Dispatcher::commends
+                ::command_write
+                    (ptr_to_str(str_ptr,str_len),
+                     &mut String::try_from(ptr_to_str(dir_ptr, dir_len)).unwrap_or_default());
+                0
+            }
+            12 => {
+                qemu_print_str("listing... ");
+                qemu_print_str(ptr_to_str(str_ptr, str_len));
+                let raw_buf = crate::fat::list_dir(ptr_to_str(str_ptr, str_len));
+                let string_list = core::str::from_utf8(&raw_buf).unwrap_or("");
+                qemu_print_str(string_list);
+                crate::WRITER.get().unwrap().lock().println(string_list);
+                0
+            }
             _ => 0,
         }
     }
 }
+
+// שים לב: הפונקציה כבר לא צריכה להיות unsafe!
+fn str_to_string(s: &str) -> heapless::String<64> {
+    heapless::String::<64>::try_from(s).unwrap_or_default()
+}
+
+unsafe fn ptr_to_str<'a>(str_ptr: u64, str_len: u64) -> &'a str {
+    let slice = core::slice::from_raw_parts(str_ptr as *const u8, str_len as usize);
+    core::str::from_utf8(slice).unwrap_or("")
+}
+
 #[unsafe(naked)]
 pub extern "C" fn asm_syscall_handler() {
     unsafe {
@@ -59,7 +109,8 @@ pub extern "C" fn asm_syscall_handler() {
             "push rbp",
             "push rbx",
 
-            "mov rdi, rax",
+            "mov rcx, r10",     // dir_ptr -> ארגומנט 4 (SysV: rdi,rsi,rdx,rcx,r8,r9)
+            "mov rdi, rax",     // syscall_num -> ארגומנט 1
 
             "call syscall_handler",
 
@@ -125,6 +176,7 @@ pub fn pop_from_buffer() -> Option<char> {
 }
 
 pub fn set_key(key: char) {
+    unsafe {if !isUserInput {return;}}
     if key == '\n'{
         crate::WRITER.get().unwrap().lock().new_line();
         unsafe {
@@ -139,6 +191,7 @@ pub fn set_key(key: char) {
         return;
     }
     let _ = push_to_buffer(key);
+
     crate::WRITER.get().unwrap().lock().print_char(key);
 }
 
@@ -149,6 +202,32 @@ pub fn qemu_print_char(c: u8) {
         in("dx") 0xe9u16, // the debug i/o port
         in("al") c,       // the character byte to log
         );
+    }
+}
+
+pub fn qemu_print_u64(mut num: u64) {
+    // מקרה קצה: אם המספר הוא 0, מדפיסים ישר את התו '0'
+    if num == 0 {
+        qemu_print_char(b'0');
+        return;
+    }
+
+    // באפר זמני קטן על הסטאק כדי להפוך את סדר הספרות
+    // (u64 יכול להגיע לכל היותר ל-20 ספרות)
+    let mut buf = [0u8; 20];
+    let mut i = 0;
+
+    // פירוק המספר מהסוף להתחלה
+    while num > 0 {
+        buf[i] = b'0' + (num % 10) as u8; // הפיכת הספרה לתו ASCII
+        num /= 10;
+        i += 1;
+    }
+
+    // הדפסת הספרות בסדר הנכון (מההתחלה לסוף)
+    while i > 0 {
+        i -= 1;
+        qemu_print_char(buf[i]);
     }
 }
 

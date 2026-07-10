@@ -199,13 +199,15 @@ impl Writer {
     }
 
     pub fn clear_screen(&mut self) {
-        // אנחנו רצים על כל השורות (height)
-        for y in 0..self.height {
-            // ועל כל העמודות (width)
-            for x in 0..self.width {
-                self.draw_pixel(x, y, 0x000000);
-            }
+        unsafe {
+            let base = self.addr as *mut u8;
+            // החישוב המדויק של כל הביתים שתופס המסך בזיכרון
+            let total_bytes = (self.height * self.pitch) as usize;
+
+            // כתיבת אפסים לכל ה-Framebuffer בבת אחת - מהיר בטירוף
+            core::ptr::write_bytes(base, 0, total_bytes);
         }
+
         // אחרי הניקוי, נחזיר את הסמן להתחלה
         self.x = 20;
         self.y = 20;

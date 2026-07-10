@@ -1,6 +1,6 @@
 use crate::program::shell::Dispatcher::commends::rmdir;
 
-mod commends; // מצהיר על קיום המודול
+pub(crate) mod commends; // מצהיר על קיום המודול
 
 pub fn dispatch_command(input: &str, dir: &mut heapless::String<64>) {
     let mut parts = input.splitn(2, ' ');
@@ -16,10 +16,11 @@ pub fn dispatch_command(input: &str, dir: &mut heapless::String<64>) {
         "WRITE" => commends::command_write(args, dir),
         "READ" => commends::command_read(args, dir),
         "DELETE" => commends::command_delete(args, dir),
-        "LS" => commends::commeand_list(args, dir),
+        "LS" => commends::commeand_list(dir),
         "MKDIR" => commends::mkdir(args, dir),
         "RMDIR" => commends::rmdir(args, dir),
         "CD" => commends::cd(args, dir),
+        "SWITCH" => commends::switch(),
         "" => {}
         _ => commends::command_echo("errore commend not found"),
     }

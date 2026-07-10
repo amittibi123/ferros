@@ -1,1 +1,1 @@
-pub static TEST_PROGRAM: &[u8] = include_bytes!("test/test.bin");
+pub static TEST_PROGRAM: &[u8] = include_bytes!("c_test/main.bin");
